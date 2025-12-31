@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Documents;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -84,7 +85,7 @@ namespace AudioVisualFilter
 
             // Setup Dispatch timer
             var timer = new OpacityTimer(this, TimeSpan.FromMilliseconds(100));
-            timer.Start();
+            //timer.Start();
 
             var recorder = new Recorder(Dispatcher);
 
@@ -101,11 +102,25 @@ namespace AudioVisualFilter
 
         // Microphone stuff, probably should move into it's own class.
 
-        private void ProcessPitch(double pitch)
+        private void ProcessPitch(FrequencyBin bin)
         {
             // TODO: Implement visual effects based on audio frame sum
             // This method is called on the UI thread for each audio frame
-            this.OutputTextBox.Text = pitch.ToString("F2");
+            
+            this.OutputTextBox.Text = bin.Frequency.ToString("F2");
+            if (bin.Magnitude > .7 && bin.Frequency > 180)
+            {
+                this.OutputTextBox.Foreground = new SolidColorBrush(Color.FromRgb(0, 255, 0)); // Green
+            } else if (bin.Magnitude > .7 && bin.Frequency > 160)
+            {
+                this.OutputTextBox.Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 0)); // Yellow
+            } else if (bin.Magnitude > .7 && bin.Frequency < 160)
+            {
+                this.OutputTextBox.Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 0, 0)); // Red
+            } else
+            {
+                this.OutputTextBox.Foreground = Brushes.White;
+            }
         }
     }
 }
