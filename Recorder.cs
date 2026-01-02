@@ -6,6 +6,7 @@ using System.Windows.Threading;
 using MathNet.Numerics.Statistics;
 using Microsoft.VisualBasic.Devices;
 using NWaves.FeatureExtractors.Base;
+using NWaves.Transforms;
 
 namespace AudioVisualFilter
 {
@@ -127,7 +128,7 @@ namespace AudioVisualFilter
 
             Console.WriteLine($"Index: {index}, Frequency: {frequency} Strength: {correlation[index]}");
             Console.ResetColor();
-            if (index == skip)
+            if (index <= skip || correlation[index] < .7)
             {
                 return new FrequencyBin { Frequency = 0.0, Magnitude = 0.0 }; // No pitch detected
             }
