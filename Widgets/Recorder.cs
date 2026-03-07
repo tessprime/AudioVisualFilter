@@ -8,7 +8,7 @@ using Microsoft.VisualBasic.Devices;
 using NWaves.FeatureExtractors.Base;
 using NWaves.Transforms;
 
-namespace AudioVisualFilter
+namespace AudioVisualFilter.Widgets
 {
     public class FrequencyBin
     {
