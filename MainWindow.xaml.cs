@@ -41,8 +41,9 @@ namespace AudioVisualFilter
             var timer = new OpacityTimer(this, TimeSpan.FromMilliseconds(100));
             //timer.Start();
 
+            var spectrogramVisualizer = new SpectrogramVisualizer(MainCanvas);
             var pitchVisualizer = new PitchVisualizer(OutputTextBox);
-            var recorder = new Recorder(Dispatcher, pitchVisualizer);
+            var recorder = new Recorder(Dispatcher, pitchVisualizer, spectrogramVisualizer);
             recorder.StartMic();
         }
 
