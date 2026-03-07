@@ -9,11 +9,14 @@
         ShowInTaskbar="False"
         Loaded="Window_Loaded">
     <Grid>
-            <TextBox x:Name="OutputTextBox" 
-             Background="Transparent" 
-             Foreground="White" 
-             FontSize="24" 
-             IsReadOnly="False" 
+        <Canvas x:Name="MainCanvas"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"/>
+        <TextBox x:Name="OutputTextBox"
+             Background="Transparent"
+             Foreground="White"
+             FontSize="24"
+             IsReadOnly="False"
              BorderThickness="0"
              VerticalAlignment="Top"
              HorizontalAlignment="Right"

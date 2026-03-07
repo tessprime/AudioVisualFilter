@@ -24,11 +24,12 @@ namespace AudioVisualFilter
         /*private readonly System.Threading.Channels.Channel<byte[]> _audioQueue =
             System.Threading.Channels.Channel.CreateUnbounded<byte[]>();*/
 
-        public Action<FrequencyBin>? OnPitch { get; set; }
+        private readonly PitchVisualizer _pitchVisualizer;
 
-        public Recorder(Dispatcher dispatcher)
+        public Recorder(Dispatcher dispatcher, PitchVisualizer pitchVisualizer)
         {
             _dispatcher = dispatcher;
+            _pitchVisualizer = pitchVisualizer;
         }
 
         public void StartMic()
@@ -60,7 +61,7 @@ namespace AudioVisualFilter
                 FrequencyBin bin = CalculatePitch(samples, _capture.WaveFormat);
 
                 // Post to UI thread
-                _dispatcher.BeginInvoke(() => OnPitch?.Invoke(bin));
+                _dispatcher.BeginInvoke(() => _pitchVisualizer.OnPitch(bin));
 
                 // push to processing pipeline
                 //_audioQueue.Writer.TryWrite(copy);
