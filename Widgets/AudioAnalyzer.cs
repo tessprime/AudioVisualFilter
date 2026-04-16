@@ -8,12 +8,14 @@ namespace AudioVisualFilter.Widgets
     {
         private const double ConfidenceThreshold = 0.7;
         private const int AutocorrelationSkip = 50;
+        private const int LpcOrder = 14;
 
         public AudioFrame Analyze(double[] samples, int sampleRate)
         {
             var spectrum = ComputeSpectrum(samples, sampleRate);
             var (pitch, confidence) = ComputePitch(samples, sampleRate);
-            return new AudioFrame(samples, sampleRate, spectrum, pitch, confidence);
+            var formants = ComputeFormants(samples, sampleRate);
+            return new AudioFrame(samples, sampleRate, spectrum, pitch, confidence, formants);
         }
 
         private FrequencyBin[] ComputeSpectrum(double[] samples, int sampleRate)
@@ -63,6 +65,70 @@ namespace AudioVisualFilter.Widgets
                 if (array[i] > maxVal) { maxVal = array[i]; maxIdx = i; }
             }
             return maxIdx;
+        }
+
+        private double[] ComputeFormants(double[] samples, int sampleRate)
+        {
+            // Pre-emphasis + Hamming window
+            var data = new double[samples.Length];
+            data[0] = samples[0];
+            for (int i = 1; i < samples.Length; i++)
+                data[i] = samples[i] - 0.97 * samples[i - 1];
+            var window = MathNet.Numerics.Window.Hamming(data.Length);
+            for (int i = 0; i < data.Length; i++)
+                data[i] *= window[i];
+
+            // Autocorrelation lags 0..LpcOrder
+            var r = new double[LpcOrder + 1];
+            for (int lag = 0; lag <= LpcOrder; lag++)
+                for (int i = lag; i < data.Length; i++)
+                    r[lag] += data[i] * data[i - lag];
+
+            var a = LevinsonDurbin(r, LpcOrder);
+
+            // Build polynomial: z^N + a[0]*z^(N-1) + ... + a[N-1]
+            // MathNet Polynomial expects ascending degree: coeffs[0] = constant term
+            var coeffs = new double[LpcOrder + 1];
+            coeffs[LpcOrder] = 1.0;
+            for (int i = 0; i < LpcOrder; i++)
+                coeffs[i] = a[LpcOrder - 1 - i];
+
+            var roots = new MathNet.Numerics.Polynomial(coeffs).Roots();
+
+            var formants = new List<double>();
+            foreach (var root in roots)
+            {
+                if (root.Imaginary <= 0) continue;
+                double freq = Math.Atan2(root.Imaginary, root.Real) * sampleRate / (2 * Math.PI);
+                if (freq >= 90 && freq <= 5500)
+                    formants.Add(freq);
+            }
+            formants.Sort();
+            return formants.ToArray();
+        }
+
+        private static double[] LevinsonDurbin(double[] r, int order)
+        {
+            var a = new double[order];
+            var aPrev = new double[order];
+            double error = r[0];
+
+            for (int i = 0; i < order; i++)
+            {
+                double lambda = r[i + 1];
+                for (int j = 0; j < i; j++)
+                    lambda += a[j] * r[i - j];
+                lambda = -lambda / error;
+
+                Array.Copy(a, aPrev, i);
+                a[i] = lambda;
+                for (int j = 0; j < i; j++)
+                    a[j] = aPrev[j] + lambda * aPrev[i - 1 - j];
+
+                error *= 1.0 - lambda * lambda;
+                if (error <= 0) break;
+            }
+            return a;
         }
     }
 }
