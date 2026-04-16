@@ -10,18 +10,19 @@ namespace AudioVisualFilter.Widgets
         public double Magnitude { get; set; }
     }
 
-    interface IAudioListener
+    interface IFrameListener
     {
-        void OnSamples(double[] samples, int sampleRate);
+        void OnFrame(AudioFrame frame);
     }
 
     class Recorder
     {
         private WasapiCapture? _capture;
         private readonly Dispatcher _dispatcher;
-        private readonly IAudioListener[] _listeners;
+        private readonly IFrameListener[] _listeners;
+        private readonly AudioAnalyzer _analyzer = new();
 
-        public Recorder(Dispatcher dispatcher, params IAudioListener[] listeners)
+        public Recorder(Dispatcher dispatcher, params IFrameListener[] listeners)
         {
             _dispatcher = dispatcher;
             _listeners = listeners;
@@ -45,8 +46,9 @@ namespace AudioVisualFilter.Widgets
                 int sampleRate = _capture.WaveFormat.SampleRate;
                 _dispatcher.BeginInvoke(() =>
                 {
+                    var frame = _analyzer.Analyze(samples, sampleRate);
                     foreach (var listener in _listeners)
-                        listener.OnSamples(samples, sampleRate);
+                        listener.OnFrame(frame);
                 });
             };
 
