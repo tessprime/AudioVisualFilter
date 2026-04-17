@@ -30,7 +30,10 @@
         </StackPanel>
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
             <Canvas x:Name="FormantCanvas"  Width="500" Height="220" ClipToBounds="True"/>
-            <Canvas x:Name="FormantSidebar" Width="80" Height="220" ClipToBounds="True"/>
+            <Grid Width="80" Height="220">
+                <Canvas x:Name="FormantSidebar"    Width="80" Height="220" ClipToBounds="True"/>
+                <Canvas x:Name="LpcEnvelopeCanvas" Width="80" Height="220" ClipToBounds="True"/>
+            </Grid>
         </StackPanel>
     </Grid> <!-- 0x80 alpha = ~50% red tint -->
 

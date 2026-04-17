@@ -56,7 +56,7 @@ namespace AudioVisualFilter.Widgets
                 var spectrum = ComputeSpectrum(frame, sampleRate);
                 var (pitch, confidence) = ComputePitch(frame, sampleRate);
                 var lpcSamples = _lpcWindow.Count == LpcWindowSize ? _lpcWindow.ToArray() : frame;
-                var formants = ComputeFormants(lpcSamples, sampleRate, confidence);
+                var (formants, lpcCoeffs, lpcRate) = ComputeFormants(lpcSamples, sampleRate, confidence);
 
                 if (IsCalibrating)
                 {
@@ -71,7 +71,7 @@ namespace AudioVisualFilter.Widgets
                 double secsRemaining = IsCalibrating
                     ? (CalibrationFrames - _calibFrameCount) * FrameSize / (double)sampleRate
                     : 0.0;
-                result = new AudioFrame(frame, sampleRate, spectrum, pitch, confidence, formants, IsCalibrating, secsRemaining);
+                result = new AudioFrame(frame, sampleRate, spectrum, pitch, confidence, formants, IsCalibrating, secsRemaining, lpcCoeffs, lpcRate);
             }
             return result;
         }
@@ -143,12 +143,12 @@ namespace AudioVisualFilter.Widgets
             return maxIdx;
         }
 
-        private double[] ComputeFormants(double[] samples, int sampleRate, double pitchConfidence)
+        private (double[] formants, double[]? lpcCoeffs, int lpcRate) ComputeFormants(double[] samples, int sampleRate, double pitchConfidence)
         {
             const double RmsThreshold = 0.01;
             double rms = Math.Sqrt(samples.Average(s => s * s));
             if (rms < RmsThreshold || pitchConfidence < ConfidenceThreshold)
-                return Array.Empty<double>();
+                return (Array.Empty<double>(), null, 0);
 
             // Downsample by 4 (44100 → ~11025 Hz) with averaging for anti-aliasing
             const int downsampleFactor = 4;
@@ -214,7 +214,7 @@ namespace AudioVisualFilter.Widgets
             }
             formants.Sort();
             //Console.WriteLine($"Formants: [{string.Join(", ", formants.Select(f => f.ToString("F0")))}]");
-            return formants.ToArray();
+            return (formants.ToArray(), a, dsRate);
         }
 
         private static double[] LevinsonDurbin(double[] r, int order)

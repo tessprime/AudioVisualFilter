@@ -10,8 +10,10 @@ namespace AudioVisualFilter.Widgets
         public double[] Formants { get; }
         public bool IsCalibrating { get; }
         public double CalibrationSecondsRemaining { get; }
+        public double[]? LpcCoefficients { get; }
+        public int LpcSampleRate { get; }
 
-        public AudioFrame(double[] samples, int sampleRate, FrequencyBin[] spectrum, double pitch, double pitchConfidence, double[] formants, bool isCalibrating, double calibrationSecondsRemaining)
+        public AudioFrame(double[] samples, int sampleRate, FrequencyBin[] spectrum, double pitch, double pitchConfidence, double[] formants, bool isCalibrating, double calibrationSecondsRemaining, double[]? lpcCoefficients = null, int lpcSampleRate = 0)
         {
             Samples = samples;
             SampleRate = sampleRate;
@@ -21,6 +23,8 @@ namespace AudioVisualFilter.Widgets
             Formants = formants;
             IsCalibrating = isCalibrating;
             CalibrationSecondsRemaining = calibrationSecondsRemaining;
+            LpcCoefficients = lpcCoefficients;
+            LpcSampleRate = lpcSampleRate;
         }
     }
 }
