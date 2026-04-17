@@ -10,11 +10,37 @@ namespace AudioVisualFilter.Widgets
         private const int AutocorrelationSkip = 50;
         private const int LpcOrder = 14;
         private const int FrameSize = 2048;
+        private const int SpectrumBins = FrameSize / 2;
+        private const int CalibrationFrames = 40; // ~2s at 2048/44100
+        private const int LpcWindowFrames = 3;
+        private const int LpcWindowSize = FrameSize * LpcWindowFrames;
 
         private readonly List<double> _sampleBuffer = new();
+        private readonly List<double> _lpcWindow = new();
+
+        private double[]? _noiseSpectrum;
+        private double[]? _noiseAutocorr;
+        private double[]? _calibSpectrumAccum;
+        private double[]? _calibAutocorrAccum;
+        private int _calibFrameCount = -1; // -1 = not started
+
+        public bool IsCalibrating => _calibFrameCount >= 0 && _calibFrameCount < CalibrationFrames;
+
+        public void StartCalibration(int sampleRate)
+        {
+            _calibSpectrumAccum = new double[SpectrumBins];
+            _calibAutocorrAccum = new double[LpcOrder + 1];
+            _calibFrameCount = 0;
+            _noiseSpectrum = null;
+            _noiseAutocorr = null;
+            Console.WriteLine($"Noise calibration started (~{CalibrationFrames * FrameSize / (double)sampleRate:F1}s)...");
+        }
 
         public AudioFrame? Analyze(double[] samples, int sampleRate)
         {
+            if (_calibFrameCount == -1)
+                StartCalibration(sampleRate);
+
             _sampleBuffer.AddRange(samples);
 
             AudioFrame? result = null;
@@ -23,25 +49,59 @@ namespace AudioVisualFilter.Widgets
                 var frame = _sampleBuffer.GetRange(0, FrameSize).ToArray();
                 _sampleBuffer.RemoveRange(0, FrameSize);
 
+                _lpcWindow.AddRange(frame);
+                if (_lpcWindow.Count > LpcWindowSize)
+                    _lpcWindow.RemoveRange(0, _lpcWindow.Count - LpcWindowSize);
+
                 var spectrum = ComputeSpectrum(frame, sampleRate);
                 var (pitch, confidence) = ComputePitch(frame, sampleRate);
-                var formants = ComputeFormants(frame, sampleRate);
+                var lpcSamples = _lpcWindow.Count == LpcWindowSize ? _lpcWindow.ToArray() : frame;
+                var formants = ComputeFormants(lpcSamples, sampleRate, confidence);
+
+                if (IsCalibrating)
+                {
+                    for (int i = 0; i < SpectrumBins; i++)
+                        _calibSpectrumAccum![i] += spectrum[i].Magnitude;
+
+                    _calibFrameCount++;
+                    if (_calibFrameCount >= CalibrationFrames)
+                        FinalizeCalibration();
+                }
+
                 result = new AudioFrame(frame, sampleRate, spectrum, pitch, confidence, formants);
             }
             return result;
+        }
+
+        private void FinalizeCalibration()
+        {
+            _noiseSpectrum = new double[SpectrumBins];
+            for (int i = 0; i < SpectrumBins; i++)
+                _noiseSpectrum[i] = _calibSpectrumAccum![i] / CalibrationFrames;
+
+            _noiseAutocorr = new double[LpcOrder + 1];
+            for (int lag = 0; lag <= LpcOrder; lag++)
+                _noiseAutocorr[lag] = _calibAutocorrAccum![lag] / CalibrationFrames;
+
+            Console.WriteLine("Noise calibration complete.");
         }
 
         private FrequencyBin[] ComputeSpectrum(double[] samples, int sampleRate)
         {
             var complex = Array.ConvertAll(samples, s => new Complex(s, 0));
             Fourier.Forward(complex, FourierOptions.AsymmetricScaling);
-            var bins = new FrequencyBin[complex.Length / 2];
-            for (int i = 0; i < bins.Length; i++)
+            var bins = new FrequencyBin[SpectrumBins];
+            for (int i = 0; i < SpectrumBins; i++)
+            {
+                double magnitude = complex[i].Magnitude;
+                if (_noiseSpectrum != null)
+                    magnitude = Math.Max(magnitude - _noiseSpectrum[i], 0.0);
                 bins[i] = new FrequencyBin
                 {
-                    Frequency = i * sampleRate / (double)complex.Length,
-                    Magnitude = complex[i].Magnitude
+                    Frequency = i * sampleRate / (double)FrameSize,
+                    Magnitude = magnitude
                 };
+            }
             return bins;
         }
 
@@ -80,8 +140,13 @@ namespace AudioVisualFilter.Widgets
             return maxIdx;
         }
 
-        private double[] ComputeFormants(double[] samples, int sampleRate)
+        private double[] ComputeFormants(double[] samples, int sampleRate, double pitchConfidence)
         {
+            const double RmsThreshold = 0.01;
+            double rms = Math.Sqrt(samples.Average(s => s * s));
+            if (rms < RmsThreshold || pitchConfidence < ConfidenceThreshold)
+                return Array.Empty<double>();
+
             // Downsample by 4 (44100 → ~11025 Hz) with averaging for anti-aliasing
             const int downsampleFactor = 4;
             int dsLength = samples.Length / downsampleFactor;
@@ -109,6 +174,21 @@ namespace AudioVisualFilter.Widgets
             for (int lag = 0; lag <= LpcOrder; lag++)
                 for (int i = lag; i < dsLength; i++)
                     r[lag] += data[i] * data[i - lag];
+
+            // Accumulate autocorrelation during calibration
+            if (IsCalibrating)
+            {
+                for (int lag = 0; lag <= LpcOrder; lag++)
+                    _calibAutocorrAccum![lag] += r[lag];
+            }
+
+            // Subtract noise autocorrelation
+            if (_noiseAutocorr != null)
+            {
+                r[0] = Math.Max(r[0] - _noiseAutocorr[0], 1e-10);
+                for (int lag = 1; lag <= LpcOrder; lag++)
+                    r[lag] -= _noiseAutocorr[lag];
+            }
 
             var a = LevinsonDurbin(r, LpcOrder);
 
