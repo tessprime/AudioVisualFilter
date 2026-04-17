@@ -13,20 +13,16 @@ namespace AudioVisualFilter.Analyses
         // Analyze a WAV file and return one FormantFrame per hop.
         // frameSize: samples per LPC window (higher = better frequency resolution)
         // hopSize:   samples between frames (lower = finer time resolution, ~441 = 10ms at 44100Hz)
-        public static IReadOnlyList<FormantFrame> Analyze(
-            string wavPath,
-            int frameSize = 8192,
-            int hopSize   = 441,
-            int lpcOrder  = LpcAnalysis.DefaultOrder,
-            int downsampleFactor = LpcAnalysis.DefaultDownsampleFactor)
+        public static IReadOnlyList<FormantFrame> Analyze(string wavPath, AnalysisConfig? config = null)
         {
+            config ??= new AnalysisConfig();
             var (samples, sampleRate) = ReadWav(wavPath);
             var frames = new List<FormantFrame>();
 
-            for (int start = 0; start + frameSize <= samples.Length; start += hopSize)
+            for (int start = 0; start + config.FrameSize <= samples.Length; start += config.HopSize)
             {
-                double timeSeconds = (start + frameSize / 2.0) / sampleRate;
-                var frame = samples[start..(start + frameSize)];
+                double timeSeconds = (start + config.FrameSize / 2.0) / sampleRate;
+                var frame = samples[start..(start + config.FrameSize)];
 
                 if (SignalProcessing.Rms(frame) < RmsThreshold)
                 {
@@ -34,7 +30,7 @@ namespace AudioVisualFilter.Analyses
                     continue;
                 }
 
-                var (_, formants, _) = LpcAnalysis.Analyze(frame, sampleRate, lpcOrder, downsampleFactor);
+                var (_, formants, _) = LpcAnalysis.Analyze(frame, sampleRate, config.LpcOrder, config.DownsampleFactor);
                 frames.Add(new FormantFrame(timeSeconds, formants));
             }
 

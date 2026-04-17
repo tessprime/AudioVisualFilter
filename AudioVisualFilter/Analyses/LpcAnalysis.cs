@@ -2,16 +2,13 @@ namespace AudioVisualFilter.Analyses
 {
     static class LpcAnalysis
     {
-        public const int DefaultOrder = 14;
-        public const int DefaultDownsampleFactor = 4;
-
         // Full LPC pipeline: downsample → pre-emphasis → Hamming window → autocorrelation → Levinson-Durbin → formants
         // Returns the LPC coefficients, extracted formants, and the effective sample rate after downsampling.
         public static (double[] Coefficients, double[] Formants, int SampleRate) Analyze(
             double[] samples,
             int sampleRate,
-            int order = DefaultOrder,
-            int downsampleFactor = DefaultDownsampleFactor)
+            int order = 14,
+            int downsampleFactor = 4)
         {
             var ds = SignalProcessing.Downsample(samples, downsampleFactor);
             int dsRate = sampleRate / downsampleFactor;

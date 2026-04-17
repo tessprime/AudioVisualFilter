@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="AudioVisualFilter.Tests/AudioVisualFilter.Tests.csproj" />
+  <Project Path="AudioVisualFilter/AudioVisualFilter.csproj" />
+</Solution>
