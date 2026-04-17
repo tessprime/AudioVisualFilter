@@ -7,12 +7,15 @@ namespace AudioVisualFilter.Widgets
 {
     class AudioAnalyzer
     {
-        private const double ConfidenceThreshold = 0.7;
+        private const double ConfidenceThreshold = 0.3;
         private const int AutocorrelationSkip = 50;
+
+        private const double FormantSmoothAlpha  = 0.3;  // EMA weight for new value; lower = smoother
+        private const double FormantMatchWindowHz = 300.0; // max Hz to consider two formants the same
 
         private readonly AnalysisConfig _config;
         private readonly List<double> _sampleBuffer = new();
-        private readonly List<double> _lpcWindow    = new();
+        private double[] _smoothedFormants = Array.Empty<double>();
 
         private double[]? _noiseSpectrum;
         private double[]? _noiseAutocorr;
@@ -52,14 +55,11 @@ namespace AudioVisualFilter.Widgets
                 var frame = _sampleBuffer.GetRange(0, _config.FrameSize).ToArray();
                 _sampleBuffer.RemoveRange(0, _config.FrameSize);
 
-                _lpcWindow.AddRange(frame);
-                if (_lpcWindow.Count > _config.LpcWindowSize)
-                    _lpcWindow.RemoveRange(0, _lpcWindow.Count - _config.LpcWindowSize);
-
-                var spectrum = ComputeSpectrum(frame, sampleRate);
+var spectrum = ComputeSpectrum(frame, sampleRate);
                 var (pitch, confidence) = ComputePitch(frame, sampleRate);
-                var lpcSamples = _lpcWindow.Count == _config.LpcWindowSize ? _lpcWindow.ToArray() : frame;
-                var (formants, lpcCoeffs, lpcRate) = ComputeFormants(lpcSamples, sampleRate, confidence);
+                var lpcFrame = frame[^Math.Min(_config.LpcFrameSize, frame.Length)..];
+                var (formants, lpcCoeffs, lpcRate) = ComputeFormants(lpcFrame, sampleRate, confidence);
+                formants = SmoothFormants(formants);
 
                 if (IsCalibrating)
                 {
@@ -145,10 +145,50 @@ namespace AudioVisualFilter.Widgets
             return maxIdx;
         }
 
+        private double[] SmoothFormants(double[] newFormants)
+        {
+            if (newFormants.Length == 0)
+            {
+                _smoothedFormants = Array.Empty<double>();
+                return newFormants;
+            }
+
+            if (_smoothedFormants.Length == 0)
+            {
+                _smoothedFormants = (double[])newFormants.Clone();
+                return _smoothedFormants;
+            }
+
+            // Match each new formant to the nearest previous smoothed formant within the window.
+            // Unmatched new formants are taken as-is; unmatched previous ones are dropped.
+            var matched = new double[newFormants.Length];
+            var used    = new bool[_smoothedFormants.Length];
+
+            for (int i = 0; i < newFormants.Length; i++)
+            {
+                int bestJ   = -1;
+                double bestD = FormantMatchWindowHz;
+                for (int j = 0; j < _smoothedFormants.Length; j++)
+                {
+                    double d = Math.Abs(newFormants[i] - _smoothedFormants[j]);
+                    if (!used[j] && d < bestD) { bestD = d; bestJ = j; }
+                }
+
+                matched[i] = bestJ >= 0
+                    ? FormantSmoothAlpha * newFormants[i] + (1 - FormantSmoothAlpha) * _smoothedFormants[bestJ]
+                    : newFormants[i];
+
+                if (bestJ >= 0) used[bestJ] = true;
+            }
+
+            _smoothedFormants = matched;
+            return _smoothedFormants;
+        }
+
         private (double[] formants, double[]? lpcCoeffs, int lpcRate) ComputeFormants(
             double[] samples, int sampleRate, double pitchConfidence)
         {
-            const double RmsThreshold = 0.01;
+            const double RmsThreshold = 0.001;
             if (SignalProcessing.Rms(samples) < RmsThreshold || pitchConfidence < ConfidenceThreshold)
                 return (Array.Empty<double>(), null, 0);
 
@@ -162,9 +202,11 @@ namespace AudioVisualFilter.Widgets
                     _calibAutocorrAccum![lag] += rNoise[lag];
             }
 
-            var (a, formants, dsRate) = LpcAnalysis.Analyze(samples, sampleRate, _config.LpcOrder, _config.DownsampleFactor);
+            var (a, formants, effectiveRate) = LpcAnalysis.Analyze(
+                samples, sampleRate, _config.LpcOrder, _config.DownsampleFactor, _config.Method);
 
-            if (_noiseAutocorr != null)
+            // Autocorrelation-domain noise subtraction only applies to LevinsonDurbin.
+            if (_config.Method == LpcMethod.LevinsonDurbin && _noiseAutocorr != null)
             {
                 var ds = SignalProcessing.Downsample(samples, _config.DownsampleFactor);
                 var preemph = SignalProcessing.PreEmphasis(ds);
@@ -174,10 +216,10 @@ namespace AudioVisualFilter.Widgets
                 for (int lag = 1; lag <= _config.LpcOrder; lag++)
                     r[lag] -= _noiseAutocorr[lag];
                 a = LpcAnalysis.LevinsonDurbin(r, _config.LpcOrder);
-                formants = LpcAnalysis.ExtractFormants(a, dsRate);
+                formants = LpcAnalysis.ExtractFormants(a, effectiveRate);
             }
 
-            return (formants, a, dsRate);
+            return (formants, a, effectiveRate);
         }
     }
 }

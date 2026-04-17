@@ -38,7 +38,13 @@ VOWEL_PRESETS = {
 
 
 def harmonic_source(f0, duration, sample_rate, n_harmonics=40):
-    """Sum of harmonics with 1/k amplitude (approximates glottal source)."""
+    """Sum of harmonics with 1/k amplitude (approximates glottal source).
+
+    TODO: add cycle-to-cycle f0 jitter (±2-5 Hz) to smear harmonic peaks and
+          reduce spurious formants caused by harmonic clustering near filter poles.
+    TODO: replace with Liljencrants-Fant (LF) glottal pulse model for a more
+          realistic spectral envelope that naturally de-emphasizes high harmonics.
+    """
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
     signal = np.zeros_like(t)
     for k in range(1, n_harmonics + 1):

@@ -2,9 +2,9 @@ using System.IO;
 
 namespace AudioVisualFilter.Analyses
 {
-    record PraatFrame(double TimeSeconds, double?[] Formants);
+    public record PraatFrame(double TimeSeconds, double?[] Formants);
 
-    static class PraatCsvParser
+    public static class PraatCsvParser
     {
         public static IReadOnlyList<PraatFrame> Parse(string csvPath)
         {

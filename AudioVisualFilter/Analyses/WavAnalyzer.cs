@@ -3,9 +3,9 @@ using NAudio.Wave;
 
 namespace AudioVisualFilter.Analyses
 {
-    record FormantFrame(double TimeSeconds, double[] Formants);
+    public record FormantFrame(double TimeSeconds, double[] Formants);
 
-    static class WavAnalyzer
+    public static class WavAnalyzer
     {
         private const double RmsThreshold = 0.01;
         private const int MaxFormants = 5;
@@ -19,10 +19,10 @@ namespace AudioVisualFilter.Analyses
             var (samples, sampleRate) = ReadWav(wavPath);
             var frames = new List<FormantFrame>();
 
-            for (int start = 0; start + config.FrameSize <= samples.Length; start += config.HopSize)
+            for (int start = 0; start + config.LpcFrameSize <= samples.Length; start += config.HopSize)
             {
-                double timeSeconds = (start + config.FrameSize / 2.0) / sampleRate;
-                var frame = samples[start..(start + config.FrameSize)];
+                double timeSeconds = (start + config.LpcFrameSize / 2.0) / sampleRate;
+                var frame = samples[start..(start + config.LpcFrameSize)];
 
                 if (SignalProcessing.Rms(frame) < RmsThreshold)
                 {
@@ -30,7 +30,7 @@ namespace AudioVisualFilter.Analyses
                     continue;
                 }
 
-                var (_, formants, _) = LpcAnalysis.Analyze(frame, sampleRate, config.LpcOrder, config.DownsampleFactor);
+                var (_, formants, _) = LpcAnalysis.Analyze(frame, sampleRate, config.LpcOrder, config.DownsampleFactor, config.Method);
                 frames.Add(new FormantFrame(timeSeconds, formants));
             }
 
