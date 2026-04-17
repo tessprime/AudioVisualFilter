@@ -47,6 +47,7 @@ namespace AudioVisualFilter.Widgets
                 _dispatcher.BeginInvoke(() =>
                 {
                     var frame = _analyzer.Analyze(samples, sampleRate);
+                    if (frame == null) return;
                     foreach (var listener in _listeners)
                         listener.OnFrame(frame);
                 });

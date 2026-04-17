@@ -9,13 +9,26 @@ namespace AudioVisualFilter.Widgets
         private const double ConfidenceThreshold = 0.7;
         private const int AutocorrelationSkip = 50;
         private const int LpcOrder = 14;
+        private const int FrameSize = 2048;
 
-        public AudioFrame Analyze(double[] samples, int sampleRate)
+        private readonly List<double> _sampleBuffer = new();
+
+        public AudioFrame? Analyze(double[] samples, int sampleRate)
         {
-            var spectrum = ComputeSpectrum(samples, sampleRate);
-            var (pitch, confidence) = ComputePitch(samples, sampleRate);
-            var formants = ComputeFormants(samples, sampleRate);
-            return new AudioFrame(samples, sampleRate, spectrum, pitch, confidence, formants);
+            _sampleBuffer.AddRange(samples);
+
+            AudioFrame? result = null;
+            while (_sampleBuffer.Count >= FrameSize)
+            {
+                var frame = _sampleBuffer.GetRange(0, FrameSize).ToArray();
+                _sampleBuffer.RemoveRange(0, FrameSize);
+
+                var spectrum = ComputeSpectrum(frame, sampleRate);
+                var (pitch, confidence) = ComputePitch(frame, sampleRate);
+                var formants = ComputeFormants(frame, sampleRate);
+                result = new AudioFrame(frame, sampleRate, spectrum, pitch, confidence, formants);
+            }
+            return result;
         }
 
         private FrequencyBin[] ComputeSpectrum(double[] samples, int sampleRate)
@@ -69,19 +82,32 @@ namespace AudioVisualFilter.Widgets
 
         private double[] ComputeFormants(double[] samples, int sampleRate)
         {
-            // Pre-emphasis + Hamming window
-            var data = new double[samples.Length];
-            data[0] = samples[0];
-            for (int i = 1; i < samples.Length; i++)
-                data[i] = samples[i] - 0.97 * samples[i - 1];
-            var window = MathNet.Numerics.Window.Hamming(data.Length);
-            for (int i = 0; i < data.Length; i++)
+            // Downsample by 4 (44100 → ~11025 Hz) with averaging for anti-aliasing
+            const int downsampleFactor = 4;
+            int dsLength = samples.Length / downsampleFactor;
+            int dsRate = sampleRate / downsampleFactor;
+            var ds = new double[dsLength];
+            for (int i = 0; i < dsLength; i++)
+            {
+                double sum = 0;
+                for (int j = 0; j < downsampleFactor; j++)
+                    sum += samples[i * downsampleFactor + j];
+                ds[i] = sum / downsampleFactor;
+            }
+
+            // Pre-emphasis + Hamming window on downsampled signal
+            var data = new double[dsLength];
+            data[0] = ds[0];
+            for (int i = 1; i < dsLength; i++)
+                data[i] = ds[i] - 0.97 * ds[i - 1];
+            var window = MathNet.Numerics.Window.Hamming(dsLength);
+            for (int i = 0; i < dsLength; i++)
                 data[i] *= window[i];
 
             // Autocorrelation lags 0..LpcOrder
             var r = new double[LpcOrder + 1];
             for (int lag = 0; lag <= LpcOrder; lag++)
-                for (int i = lag; i < data.Length; i++)
+                for (int i = lag; i < dsLength; i++)
                     r[lag] += data[i] * data[i - lag];
 
             var a = LevinsonDurbin(r, LpcOrder);
@@ -99,11 +125,12 @@ namespace AudioVisualFilter.Widgets
             foreach (var root in roots)
             {
                 if (root.Imaginary <= 0) continue;
-                double freq = Math.Atan2(root.Imaginary, root.Real) * sampleRate / (2 * Math.PI);
+                double freq = Math.Atan2(root.Imaginary, root.Real) * dsRate / (2 * Math.PI);
                 if (freq >= 90 && freq <= 5500)
                     formants.Add(freq);
             }
             formants.Sort();
+            //Console.WriteLine($"Formants: [{string.Join(", ", formants.Select(f => f.ToString("F0")))}]");
             return formants.ToArray();
         }
 
