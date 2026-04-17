@@ -1,6 +1,7 @@
 using System.Numerics;
 using MathNet.Numerics.IntegralTransforms;
 using MathNet.Numerics.Statistics;
+using AudioVisualFilter.Analyses;
 
 namespace AudioVisualFilter.Widgets
 {
@@ -8,28 +9,24 @@ namespace AudioVisualFilter.Widgets
     {
         private const double ConfidenceThreshold = 0.7;
         private const int AutocorrelationSkip = 50;
-        private const int LpcOrder = 14;
         private const int FrameSize = 8192;
         private const int SpectrumBins = FrameSize / 2;
         private const int CalibrationFrames = 11; // ~2s at 8192/44100
-        private const int LpcWindowFrames = 1;
-        private const int LpcWindowSize = FrameSize * LpcWindowFrames;
 
         private readonly List<double> _sampleBuffer = new();
-        private readonly List<double> _lpcWindow = new();
 
         private double[]? _noiseSpectrum;
         private double[]? _noiseAutocorr;
         private double[]? _calibSpectrumAccum;
         private double[]? _calibAutocorrAccum;
-        private int _calibFrameCount = -1; // -1 = not started
+        private int _calibFrameCount = -1;
 
         public bool IsCalibrating => _calibFrameCount >= 0 && _calibFrameCount < CalibrationFrames;
 
         public void StartCalibration(int sampleRate)
         {
             _calibSpectrumAccum = new double[SpectrumBins];
-            _calibAutocorrAccum = new double[LpcOrder + 1];
+            _calibAutocorrAccum = new double[LpcAnalysis.DefaultOrder + 1];
             _calibFrameCount = 0;
             _noiseSpectrum = null;
             _noiseAutocorr = null;
@@ -49,20 +46,14 @@ namespace AudioVisualFilter.Widgets
                 var frame = _sampleBuffer.GetRange(0, FrameSize).ToArray();
                 _sampleBuffer.RemoveRange(0, FrameSize);
 
-                _lpcWindow.AddRange(frame);
-                if (_lpcWindow.Count > LpcWindowSize)
-                    _lpcWindow.RemoveRange(0, _lpcWindow.Count - LpcWindowSize);
-
                 var spectrum = ComputeSpectrum(frame, sampleRate);
                 var (pitch, confidence) = ComputePitch(frame, sampleRate);
-                var lpcSamples = _lpcWindow.Count == LpcWindowSize ? _lpcWindow.ToArray() : frame;
-                var (formants, lpcCoeffs, lpcRate) = ComputeFormants(lpcSamples, sampleRate, confidence);
+                var (formants, lpcCoeffs, lpcRate) = ComputeFormants(frame, sampleRate, confidence);
 
                 if (IsCalibrating)
                 {
                     for (int i = 0; i < SpectrumBins; i++)
                         _calibSpectrumAccum![i] += spectrum[i].Magnitude;
-
                     _calibFrameCount++;
                     if (_calibFrameCount >= CalibrationFrames)
                         FinalizeCalibration();
@@ -82,8 +73,8 @@ namespace AudioVisualFilter.Widgets
             for (int i = 0; i < SpectrumBins; i++)
                 _noiseSpectrum[i] = _calibSpectrumAccum![i] / CalibrationFrames;
 
-            _noiseAutocorr = new double[LpcOrder + 1];
-            for (int lag = 0; lag <= LpcOrder; lag++)
+            _noiseAutocorr = new double[LpcAnalysis.DefaultOrder + 1];
+            for (int lag = 0; lag <= LpcAnalysis.DefaultOrder; lag++)
                 _noiseAutocorr[lag] = _calibAutocorrAccum![lag] / CalibrationFrames;
 
             Console.WriteLine("Noise calibration complete.");
@@ -143,102 +134,42 @@ namespace AudioVisualFilter.Widgets
             return maxIdx;
         }
 
-        private (double[] formants, double[]? lpcCoeffs, int lpcRate) ComputeFormants(double[] samples, int sampleRate, double pitchConfidence)
+        private (double[] formants, double[]? lpcCoeffs, int lpcRate) ComputeFormants(
+            double[] samples, int sampleRate, double pitchConfidence)
         {
             const double RmsThreshold = 0.01;
-            double rms = Math.Sqrt(samples.Average(s => s * s));
-            if (rms < RmsThreshold || pitchConfidence < ConfidenceThreshold)
+            if (SignalProcessing.Rms(samples) < RmsThreshold || pitchConfidence < ConfidenceThreshold)
                 return (Array.Empty<double>(), null, 0);
 
-            // Downsample by 4 (44100 → ~11025 Hz) with averaging for anti-aliasing
-            const int downsampleFactor = 4;
-            int dsLength = samples.Length / downsampleFactor;
-            int dsRate = sampleRate / downsampleFactor;
-            var ds = new double[dsLength];
-            for (int i = 0; i < dsLength; i++)
-            {
-                double sum = 0;
-                for (int j = 0; j < downsampleFactor; j++)
-                    sum += samples[i * downsampleFactor + j];
-                ds[i] = sum / downsampleFactor;
-            }
-
-            // Pre-emphasis + Hamming window on downsampled signal
-            var data = new double[dsLength];
-            data[0] = ds[0];
-            for (int i = 1; i < dsLength; i++)
-                data[i] = ds[i] - 0.97 * ds[i - 1];
-            var window = MathNet.Numerics.Window.Hamming(dsLength);
-            for (int i = 0; i < dsLength; i++)
-                data[i] *= window[i];
-
-            // Autocorrelation lags 0..LpcOrder
-            var r = new double[LpcOrder + 1];
-            for (int lag = 0; lag <= LpcOrder; lag++)
-                for (int i = lag; i < dsLength; i++)
-                    r[lag] += data[i] * data[i - lag];
-
-            // Accumulate autocorrelation during calibration
+            // Accumulate noise autocorrelation during calibration (on downsampled signal)
             if (IsCalibrating)
             {
-                for (int lag = 0; lag <= LpcOrder; lag++)
-                    _calibAutocorrAccum![lag] += r[lag];
+                var ds = SignalProcessing.Downsample(samples, LpcAnalysis.DefaultDownsampleFactor);
+                var preemph = SignalProcessing.PreEmphasis(ds);
+                SignalProcessing.ApplyHammingWindow(preemph);
+                var rNoise = SignalProcessing.Autocorrelation(preemph, LpcAnalysis.DefaultOrder);
+                for (int lag = 0; lag <= LpcAnalysis.DefaultOrder; lag++)
+                    _calibAutocorrAccum![lag] += rNoise[lag];
             }
 
-            // Subtract noise autocorrelation
+            var (a, formants, dsRate) = LpcAnalysis.Analyze(samples, sampleRate);
+
+            // Subtract noise autocorrelation if calibrated
+            // (Applied before Levinson-Durbin via re-running with adjusted r)
             if (_noiseAutocorr != null)
             {
+                var ds = SignalProcessing.Downsample(samples, LpcAnalysis.DefaultDownsampleFactor);
+                var preemph = SignalProcessing.PreEmphasis(ds);
+                SignalProcessing.ApplyHammingWindow(preemph);
+                var r = SignalProcessing.Autocorrelation(preemph, LpcAnalysis.DefaultOrder);
                 r[0] = Math.Max(r[0] - _noiseAutocorr[0], 1e-10);
-                for (int lag = 1; lag <= LpcOrder; lag++)
+                for (int lag = 1; lag <= LpcAnalysis.DefaultOrder; lag++)
                     r[lag] -= _noiseAutocorr[lag];
+                a = LpcAnalysis.LevinsonDurbin(r, LpcAnalysis.DefaultOrder);
+                formants = LpcAnalysis.ExtractFormants(a, dsRate);
             }
 
-            var a = LevinsonDurbin(r, LpcOrder);
-
-            // Build polynomial: z^N + a[0]*z^(N-1) + ... + a[N-1]
-            // MathNet Polynomial expects ascending degree: coeffs[0] = constant term
-            var coeffs = new double[LpcOrder + 1];
-            coeffs[LpcOrder] = 1.0;
-            for (int i = 0; i < LpcOrder; i++)
-                coeffs[i] = a[LpcOrder - 1 - i];
-
-            var roots = new MathNet.Numerics.Polynomial(coeffs).Roots();
-
-            var formants = new List<double>();
-            foreach (var root in roots)
-            {
-                if (root.Imaginary <= 0) continue;
-                double freq = Math.Atan2(root.Imaginary, root.Real) * dsRate / (2 * Math.PI);
-                if (freq >= 90 && freq <= 5500)
-                    formants.Add(freq);
-            }
-            formants.Sort();
-            //Console.WriteLine($"Formants: [{string.Join(", ", formants.Select(f => f.ToString("F0")))}]");
-            return (formants.ToArray(), a, dsRate);
-        }
-
-        private static double[] LevinsonDurbin(double[] r, int order)
-        {
-            var a = new double[order];
-            var aPrev = new double[order];
-            double error = r[0];
-
-            for (int i = 0; i < order; i++)
-            {
-                double lambda = r[i + 1];
-                for (int j = 0; j < i; j++)
-                    lambda += a[j] * r[i - j];
-                lambda = -lambda / error;
-
-                Array.Copy(a, aPrev, i);
-                a[i] = lambda;
-                for (int j = 0; j < i; j++)
-                    a[j] = aPrev[j] + lambda * aPrev[i - 1 - j];
-
-                error *= 1.0 - lambda * lambda;
-                if (error <= 0) break;
-            }
-            return a;
+            return (formants, a, dsRate);
         }
     }
 }
