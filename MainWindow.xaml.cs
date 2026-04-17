@@ -42,9 +42,11 @@ namespace AudioVisualFilter
             //timer.Start();
 
             var spectrogramVisualizer = new SpectrogramVisualizer(MainCanvas);
-            var formantVisualizer = new FormantVisualizer(FormantCanvas);
-            var pitchVisualizer = new PitchVisualizer(OutputTextBox);
-            var recorder = new Recorder(Dispatcher, pitchVisualizer, spectrogramVisualizer, formantVisualizer);
+            var spectrogramSidebar    = new MagnitudePlotVisualizer(SpectrogramSidebar, 50.0, 300.0);
+            var formantVisualizer     = new FormantVisualizer(FormantCanvas);
+            var formantSidebar        = new MagnitudePlotVisualizer(FormantSidebar, 200.0, 4000.0);
+            var pitchVisualizer       = new PitchVisualizer(OutputTextBox);
+            var recorder = new Recorder(Dispatcher, pitchVisualizer, spectrogramVisualizer, spectrogramSidebar, formantVisualizer, formantSidebar);
             recorder.StartMic();
         }
 

@@ -9,10 +9,10 @@ namespace AudioVisualFilter.Widgets
         private const double ConfidenceThreshold = 0.7;
         private const int AutocorrelationSkip = 50;
         private const int LpcOrder = 14;
-        private const int FrameSize = 2048;
+        private const int FrameSize = 8192;
         private const int SpectrumBins = FrameSize / 2;
-        private const int CalibrationFrames = 40; // ~2s at 2048/44100
-        private const int LpcWindowFrames = 3;
+        private const int CalibrationFrames = 11; // ~2s at 8192/44100
+        private const int LpcWindowFrames = 1;
         private const int LpcWindowSize = FrameSize * LpcWindowFrames;
 
         private readonly List<double> _sampleBuffer = new();
@@ -68,7 +68,10 @@ namespace AudioVisualFilter.Widgets
                         FinalizeCalibration();
                 }
 
-                result = new AudioFrame(frame, sampleRate, spectrum, pitch, confidence, formants);
+                double secsRemaining = IsCalibrating
+                    ? (CalibrationFrames - _calibFrameCount) * FrameSize / (double)sampleRate
+                    : 0.0;
+                result = new AudioFrame(frame, sampleRate, spectrum, pitch, confidence, formants, IsCalibrating, secsRemaining);
             }
             return result;
         }

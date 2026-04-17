@@ -28,6 +28,8 @@ namespace AudioVisualFilter.Widgets
         private readonly WriteableBitmap _bitmap;
         private readonly int _width;
         private readonly int _height;
+        private readonly System.Windows.Controls.TextBlock _calibLabel;
+        private readonly System.Windows.Controls.TextBlock _calibCountdown;
         private bool _labelsAdded;
 
         public FormantVisualizer(Canvas canvas, int historySize = 400)
@@ -54,10 +56,34 @@ namespace AudioVisualFilter.Widgets
             Canvas.SetLeft(border, 0);
             Canvas.SetTop(border, 0);
             _canvas.Children.Add(border);
+
+            _calibLabel = new System.Windows.Controls.TextBlock
+            {
+                Text = "Calibrating Noise...",
+                Foreground = Brushes.White,
+                FontSize = 16,
+                Visibility = Visibility.Visible
+            };
+            Canvas.SetLeft(_calibLabel, _width / 2.0 - 80);
+            Canvas.SetTop(_calibLabel, _height / 2.0 - 10);
+            _canvas.Children.Add(_calibLabel);
+
+            _calibCountdown = new System.Windows.Controls.TextBlock
+            {
+                Foreground = Brushes.White,
+                FontSize = 13,
+                Visibility = Visibility.Visible
+            };
+            Canvas.SetLeft(_calibCountdown, _width / 2.0 - 80);
+            Canvas.SetTop(_calibCountdown, _height / 2.0 + 12);
+            _canvas.Children.Add(_calibCountdown);
         }
 
         public void OnFrame(AudioFrame frame)
         {
+            _calibLabel.Visibility = frame.IsCalibrating ? Visibility.Visible : Visibility.Collapsed;
+            _calibCountdown.Visibility = frame.IsCalibrating ? Visibility.Visible : Visibility.Collapsed;
+            _calibCountdown.Text = $"{frame.CalibrationSecondsRemaining:F1}s remaining";
             _buffer.Write(frame.Formants);
             Redraw();
         }

@@ -8,8 +8,10 @@ namespace AudioVisualFilter.Widgets
         public double Pitch { get; }
         public double PitchConfidence { get; }
         public double[] Formants { get; }
+        public bool IsCalibrating { get; }
+        public double CalibrationSecondsRemaining { get; }
 
-        public AudioFrame(double[] samples, int sampleRate, FrequencyBin[] spectrum, double pitch, double pitchConfidence, double[] formants)
+        public AudioFrame(double[] samples, int sampleRate, FrequencyBin[] spectrum, double pitch, double pitchConfidence, double[] formants, bool isCalibrating, double calibrationSecondsRemaining)
         {
             Samples = samples;
             SampleRate = sampleRate;
@@ -17,6 +19,8 @@ namespace AudioVisualFilter.Widgets
             Pitch = pitch;
             PitchConfidence = pitchConfidence;
             Formants = formants;
+            IsCalibrating = isCalibrating;
+            CalibrationSecondsRemaining = calibrationSecondsRemaining;
         }
     }
 }
